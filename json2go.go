@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sync"
 
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
@@ -22,31 +23,48 @@ const (
 
 func main() {
 	args := os.Args[1:]
+	var wg sync.WaitGroup
+	c := make(chan error)
+
+	wg.Add(len(args))
+
+	go func() {
+		wg.Wait()
+		close(c)
+	}()
 
 	for _, arg := range args {
-		_, err := Convert(arg)
+		go func(arg string) {
+			Convert(arg, c)
+			wg.Done()
+		}(arg)
+	}
 
+	for err := range c {
 		if err != nil {
 			fmt.Println(err)
 		}
 	}
 }
 
-func Convert(file string) (int, error) {
+func Convert(file string, c chan error) {
 	if !isJSONFile(file) {
-		return 0, fmt.Errorf("input file must be json")
+		c <- fmt.Errorf("input file must be json")
+		return
 	}
 
 	data, err := readJsonFile(file)
 
 	if err != nil {
-		return 0, fmt.Errorf("error converting json to go: %v", err)
+		c <- fmt.Errorf("error converting json to go: %v", err)
+		return
 	}
 
 	m, err := getJsonMap(data)
 
 	if err != nil {
-		return 0, fmt.Errorf("error converting json to go: %v", err)
+		c <- fmt.Errorf("error converting json to go: %v", err)
+		return
 	}
 
 	filename := getFileNameNoPathExt(file)
@@ -54,17 +72,17 @@ func Convert(file string) (int, error) {
 	conv, err := buildGoStruct(m, filename)
 
 	if err != nil {
-		return 0, fmt.Errorf("error converting json to go: %v", err)
+		c <- fmt.Errorf("error converting json to go: %v", err)
+		return
 	}
 
 	gofile := filename + ".go"
-	n, err := writeGoFile(gofile, conv)
+	_, err = writeGoFile(gofile, conv)
 	cmd := exec.Command("go", "fmt", gofile)
 	if err := cmd.Run(); err != nil {
-		return n, fmt.Errorf("Cannot format file %v: %v", gofile, err)
+		c <- fmt.Errorf("Cannot format file %v: %v", gofile, err)
+		return
 	}
-
-	return n, nil
 }
 
 func readJsonFile(file string) ([]byte, error) {
