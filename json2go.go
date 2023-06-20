@@ -21,13 +21,15 @@ const (
 )
 
 func main() {
-	n, err := Convert("test.json")
+	args := os.Args[1:]
 
-	if err != nil {
-		fmt.Println(err)
+	for _, arg := range args {
+		_, err := Convert(arg)
+
+		if err != nil {
+			fmt.Println(err)
+		}
 	}
-
-	fmt.Println(n)
 }
 
 func Convert(file string) (int, error) {
